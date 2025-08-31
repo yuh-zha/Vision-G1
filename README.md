@@ -1,4 +1,7 @@
 # Vision-G1: Towards General Vision Language Reasoning with Multi-Domain Data Curation
+[![arXiv](https://img.shields.io/badge/arXiv-2508.12680-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2508.12680)
+[![GitHub](https://img.shields.io/badge/GitHub-Repo-181717?logo=github&logoColor=white)](https://github.com/yuh-zha/Vision-G1)
+[![HuggingFace](https://img.shields.io/badge/HuggingFace-Model-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/yzha/vision-g1)
 ## Introduction
 We present the reasoning VLM: Vision-G1, which is trained through multi-domain data curation. Specifically, we include training data from 46 data sources across 8 dimensions. This repo includes training code, data preprocessing scripts, and evaluation scripts.
 ## Installation
