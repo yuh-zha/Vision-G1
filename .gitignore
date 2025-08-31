@@ -10,6 +10,7 @@
 **/wandb
 slurm_log/
 data/
+!/data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
