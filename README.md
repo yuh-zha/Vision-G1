@@ -94,6 +94,8 @@ sbatch examples/grpo_trainer/distributed_vision_g1.sh
 ```
 ## Data
 TBD
+## Evaluation
+TBD
 ## Acknowledgement
 We use [verl](https://github.com/volcengine/verl) as the codebase to build our training framework.
 ## Citation
