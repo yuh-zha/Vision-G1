@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Highlight PAN-2: Stylish Hatch Pattern</title>
+
+  <script src="https://cdn.plot.ly/plotly-2.14.0.min.js"></script>
+  <link crossorigin="anonymous" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      background: transparent;
+      margin: 0;
+      padding: 0;
+      font-family: 'Nunito', sans-serif;
+      text-align: center;
+    }
+    #bar-chart {
+      width: 900px;
+      height: 700px;
+      margin: auto;
+    }
+    .chart-title {
+      font-size: 36px;
+      font-weight: bold;
+      font-family: 'Nunito', sans-serif;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="chart-title">Generation Length (s)</div>
+  <div id="bar-chart"></div>
+
+  <script>
+    // Model data
+    const modelsData = [
+      { name: "Gen-3", color: "rgba(46,204,113,0.90)", score: 10 },
+      { name: "Hailuo", color: "rgba(237,106,124,0.90)", score: 5.6 },
+      { name: "DynamiCrafter", color: "rgba(243,147,81,0.90)", score: 2 },
+      { name: "VideoCrafter1-I2V", color: "rgba(89,173,154,0.90)", score: 2 },
+      { name: "VideoCrafter2", color: "rgba(131,112,212,0.90)", score: 2 },
+      { name: "CogVideoX-I2V", color: "rgba(228,186,90,0.90)", score: 6 },
+      { name: "PAN-2", color: "rgba(85,144,202,0.90)", score: 40 }
+    ];
+
+    // Sort by score (descending)
+    modelsData.sort((a, b) => b.score - a.score);
+
+    // Find max score for y-axis limit
+    const maxScore = Math.max(...modelsData.map(model => model.score));
+    const yAxisUpperLimit = Math.ceil(maxScore * 1.25);
+
+    // Create bar trace with all models
+    const barTrace = {
+      type: "bar",
+      x: modelsData.map(model => model.name),
+      y: modelsData.map(model => model.score),
+      marker: {
+        color: modelsData.map(model => model.color),
+        line: {
+          width: modelsData.map(model => model.name === "PAN-2" ? 3 : 1),
+          color: modelsData.map(model => model.name === "PAN-2" ? "rgba(255,215,0,0.95)" : "black")
+        }
+      },
+      text: modelsData.map(model => model.score.toFixed(1)),
+      textposition: "outside",
+      textfont: {
+        size: 28,
+        color: "black",
+        family: "Nunito",
+        weight: "bold"
+      },
+      hovertemplate: "%{x}<br>%{y:.1f}s<extra></extra>"
+    };
+
+    // Add a separate trace just for PAN-2 with pattern
+    const panIndex = modelsData.findIndex(model => model.name === "PAN-2");
+    const panTrace = {
+      type: "bar",
+      x: [modelsData[panIndex].name],
+      y: [modelsData[panIndex].score],
+      marker: {
+        color: modelsData[panIndex].color,
+        pattern: {
+          shape: "/",
+          size: 20,
+          fillmode: "overlay",
+          fgcolor: "rgba(255,255,255,0.8)",
+          solidity: 0.7
+        },
+        line: {
+          width: 3,
+          color: "rgba(255,215,0,0.95)"
+        }
+      },
+      text: [modelsData[panIndex].score.toFixed(1)],
+      textposition: "outside",
+      textfont: {
+        size: 28,
+        color: "black",
+        family: "Nunito",
+        weight: "bold"
+      },
+      hovertemplate: "%{x}<br>%{y:.1f}s<extra></extra>"
+    };
+
+    // Layout settings
+    const layout = {
+      width: 900,
+      height: 700,
+      bargap: 0.3,
+      xaxis: {
+        tickangle: -45,
+        tickfont: { size: 24, family: "Nunito" },
+        automargin: true  // Added automargin to ensure labels are visible
+      },
+      yaxis: {
+        range: [0, yAxisUpperLimit],
+        tickfont: { size: 24, family: "Nunito" },
+        title: {
+          text: "Seconds",
+          font: { size: 28, family: "Nunito" }
+        }
+      },
+      margin: { l: 80, r: 50, t: 20, b: 180 },  // Increased bottom margin to 180px
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      showlegend: false,
+      barmode: 'overlay'
+    };
+
+    // Render chart
+    Plotly.newPlot("bar-chart", [barTrace, panTrace], layout, {displayModeBar: false});
+  </script>
+</body>
+</html>

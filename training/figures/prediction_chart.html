@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Prediction Chart</title>
+  
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+  <!-- Google font -->
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Nunito', sans-serif;
+    }
+    /* Legend container styles */
+    #legend-container {
+      position: absolute;
+      top: 10px; 
+      right: 30px;
+      width: 350px; 
+      height: 350px;
+      z-index: 1000;
+      background: transparent;
+      overflow: auto;
+    }
+    #plotly-target-legend {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Chart wrapper: single chart centered */
+    #charts-wrapper {
+      display: flex;
+      justify-content: center;
+      padding-right: 350px; 
+    }
+    .chart-container {
+      width: 80%;
+      height: 80vh;
+      margin: 10px;
+      position: relative;
+      box-sizing: border-box;
+    }
+    .plotly-target {
+      width: 100%;
+      height: 100%;
+    }
+    .arc-layer {
+      position: absolute;
+      top: 0; 
+      left: 0;
+      width: 100%; 
+      height: 100%;
+      pointer-events: none;
+      z-index: 999;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- All content -->
+  <div id="content">
+    <!-- The Legend at top-right -->
+    <div id="legend-container">
+      <div id="plotly-target-legend" class="plotly-target"></div>
+    </div>
+    
+    <!-- Just the prediction chart -->
+    <div id="charts-wrapper">
+      <!-- Prediction Chart -->
+      <div id="prediction-chart" class="chart-container">
+        <!-- A big label in center -->
+        <div style="
+          position: absolute; 
+          top: 50%; 
+          left: 50%;
+          transform: translate(-50%, -50%);
+          color: #0066cc; 
+          font-size: 36px; 
+          font-weight: bold;
+          z-index: 200; 
+          pointer-events: none;">
+          <div style="text-align: center;">
+            Math<br>Reasoning
+          </div>
+        </div>
+        <div id="plotly-target-prediction" class="plotly-target"></div>
+        <svg id="arc-layer-prediction" class="arc-layer"></svg>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---------------------------------------------------------------------
+    // 1) Utility functions for the radial bar chart
+    // ---------------------------------------------------------------------
+
+    // Map score in [0..100] to radius in [ringMin..ringMax]
+    function scoreToRadius(score, ringMin, ringMax) {
+      return ringMin + (score / 100) * (ringMax - ringMin);
+    }
+
+    // Compute angle for labeling text so it isn't upside down
+    function calcRadialAngle(midAngle) {
+      var angle = midAngle - 90;
+      if (angle > 90) {
+        angle -= 180;
+      } else if (angle < -90) {
+        angle += 180;
+      }
+      return angle;
+    }
+
+    // Partition each task's "sector" in the 360 degrees, with gapDeg between tasks
+    function computeTaskAngles(tasks, gapDeg) {
+      var taskOrder = tasks.slice();
+      var totalTasks = taskOrder.length;
+      var totalGapAngle = totalTasks * gapDeg;
+      var tasksAngleSum = 360 - totalGapAngle;
+      if (!totalTasks) {
+        return { taskOrder:[], anglesDeg:[], partitionStarts:[], anglePerTask:0 };
+      }
+      var anglePerTask = tasksAngleSum / totalTasks;
+      var anglesDeg = [], partitionStarts = [];
+      var currentAngle = 0;
+      taskOrder.forEach(function(task) {
+        partitionStarts.push(currentAngle);
+        anglesDeg.push(currentAngle);
+        currentAngle += anglePerTask + gapDeg;
+      });
+      return { taskOrder, anglesDeg, partitionStarts, anglePerTask };
+    }
+
+    // ---------------------------------------------------------------------
+    // 2) Main function to render each radial bar chart
+    // ---------------------------------------------------------------------
+    /*
+      params: {
+        tasks, modelNames, humanPerformances, randomAccuracies, dataValues, modelColors,
+        ring_min, ring_max, gap_deg,
+        plotlyTargetId, svgLayerId,
+        layoutWidth, layoutHeight,
+        polarCenter: { x, y },
+        taskNameConfig: { ringRadius, endAngleOffset, startAngleExtra }
+      }
+    */
+    function renderChart(params) {
+        var tasks = params.tasks;
+        var modelNames = params.modelNames;
+        var humanPerformances = params.humanPerformances;
+        var randomAccuracies = params.randomAccuracies;
+        var dataValues = params.dataValues;
+        var modelColors = params.modelColors;
+
+        // 计算所有 performance 的最小值和最大值
+        var allPerformances = humanPerformances.slice();
+        dataValues.forEach(function(arr) {
+          allPerformances = allPerformances.concat(arr);
+        });
+        var minPerf = Math.min.apply(null, allPerformances);
+        var maxPerf = Math.max.apply(null, allPerformances);
+
+
+      // We'll process exactly 1 ring
+      var ringData = [{
+        ring_min: params.ring_min,
+        ring_max: params.ring_max,
+        gap_deg:  params.gap_deg,
+        partitions: {}
+      }];
+      tasks.forEach(function(t) { ringData[0].partitions[t] = [t]; });
+
+      var traces = [];
+      // track which legends have been shown
+      var legendShown = new Array(modelNames.length).fill(false);
+
+      ringData.forEach(function(ring) {
+        var ringMin = ring.ring_min;
+        var ringMax = ring.ring_max;
+        var gapDeg  = ring.gap_deg;
+        var angleInfo = computeTaskAngles(tasks, gapDeg);
+        var taskOrder       = angleInfo.taskOrder;
+        var anglesDeg       = angleInfo.anglesDeg;
+        var partitionStarts = angleInfo.partitionStarts;
+        var anglePerTask    = angleInfo.anglePerTask;
+
+        // -------------------------------------------------------------------
+        // 1) Draw ringMin & ringMax circles
+        // -------------------------------------------------------------------
+        var circleAngles = [];
+        for (var a = 0; a <= 360; a++) {
+          circleAngles.push(a);
+        }
+        [ringMin, ringMax].forEach(function(bound) {
+          traces.push({
+            type: "scatterpolar",
+            mode: "none",
+            hoverinfo: "skip",
+            showlegend: false,
+            r: circleAngles.map(() => bound),
+            theta: circleAngles,
+            fill: null,
+            line: { color: "rgba(0,0,0,0.2)", width: 1 }
+          });
+        });
+
+        // -------------------------------------------------------------------
+        // 2.5) "Human performance" sector in each partition
+        // -------------------------------------------------------------------
+        taskOrder.forEach(function(_, i) {
+          var humanScore = humanPerformances[i];
+          // find best model score for this task
+          var maxModelScore = Math.max.apply(null, dataValues[i]);
+          if (humanScore >= maxModelScore) {
+            var partStart = anglesDeg[i];
+            var partEnd   = partStart + anglePerTask;
+            var humanR    = scoreToRadius(humanScore, ringMin, ringMax);
+
+            var anglesArr = [], radiiArr = [];
+            for (var ang = partStart; ang <= partEnd; ang += 0.5) {
+              anglesArr.push(ang);
+              radiiArr.push(humanR);
+            }
+            for (var ang = partEnd; ang >= partStart; ang -= 0.5) {
+              anglesArr.push(ang);
+              radiiArr.push(ringMin);
+            }
+            anglesArr.push(partStart);
+            radiiArr.push(humanR);
+
+            traces.push({
+              type: "scatterpolar",
+              mode: "none",
+              hoverinfo: "skip",
+              showlegend: false,
+              r: radiiArr,
+              theta: anglesArr,
+              fill: "toself",
+              fillcolor: "rgba(65,105,225,0.2)",
+              line: { color: "rgba(65,105,225,0.8)", width: 4 }
+            });
+
+            // Label "Human" in the middle of that sector
+            var midAngle = (partStart + partEnd) / 2;
+            traces.push({
+              type: "scatterpolar",
+              mode: "text",
+              hoverinfo: "skip",
+              showlegend: false,
+              r: [humanR],
+              theta: [midAngle],
+              text: ["Human"],
+              textfont: { size: 24, color: "black", family: "Nunito" },
+              textangle: calcRadialAngle(midAngle)
+            });
+          }
+        });
+
+        // -------------------------------------------------------------------
+        // 3) Model performance bars
+        // -------------------------------------------------------------------
+        taskOrder.forEach(function(taskName, i) {
+          var partStart = anglesDeg[i];
+          var partAngle = anglePerTask;
+          var mCount = modelNames.length;
+
+          // Sort model indices from lowest to highest performance
+          var modelOrder = [];
+          for (var idx = 0; idx < mCount; idx++) {
+            modelOrder.push(idx);
+          }
+          modelOrder.sort(function(a, b) {
+            return dataValues[i][a] - dataValues[i][b];
+          });
+
+          var subAngle = partAngle / mCount;
+          for (var j = 0; j < mCount; j++) {
+            var mIndex = modelOrder[j];
+            var barStart = partStart + subAngle*j;
+            var barEnd   = barStart + subAngle;
+            var score    = dataValues[i][mIndex];
+            var baseline = randomAccuracies[i];
+            var baselineR= ringMin;
+            var modelR   = ringMin + ((score - baseline) / (100 - baseline)) * (ringMax - ringMin);
+
+            var outer, inner, labelR;
+            if (modelR >= baselineR) {
+              outer = modelR; 
+              inner = baselineR;
+              labelR= baselineR + 0.85*(modelR - baselineR);
+            } else {
+              outer = baselineR; 
+              inner = modelR;
+              labelR= baselineR - 0.85*(baselineR - modelR);
+            }
+
+            var anglesArr = [], radiiArr = [];
+            for (var a = barStart; a <= barEnd; a += 0.5) {
+              anglesArr.push(a);
+              radiiArr.push(outer);
+            }
+            for (var a = barEnd; a >= barStart; a -= 0.5) {
+              anglesArr.push(a);
+              radiiArr.push(inner);
+            }
+            anglesArr.push(barStart);
+            radiiArr.push(outer);
+
+            traces.push({
+              type: "scatterpolar",
+              mode: "none",
+              hoverinfo: "skip",
+              fill: "toself",
+              fillcolor: modelColors[mIndex],
+              line: { color: "black", width: 1 },
+              name: modelNames[mIndex],
+              showlegend: !legendShown[mIndex],
+              r: radiiArr,
+              theta: anglesArr
+            });
+            legendShown[mIndex] = true;
+
+            // Score text label
+            var barMidAngle = (barStart + barEnd) / 2;
+            traces.push({
+              type: "scatterpolar",
+              mode: "text",
+              hoverinfo: "skip",
+              showlegend: false,
+              r: [labelR],
+              theta: [barMidAngle],
+              text: [score.toFixed(1)],
+              textfont: { size: 18, color: "white", family: "Nunito" },
+              textangle: calcRadialAngle(barMidAngle)
+            });
+          }
+        });
+
+        // -------------------------------------------------------------------
+        // 4) Partition boundary lines
+        // -------------------------------------------------------------------
+        partitionStarts.slice(1).forEach(function(ang) {
+          traces.push({
+            type: "scatterpolar",
+            mode: "lines",
+            hoverinfo: "skip",
+            showlegend: false,
+            r: [ringMin, ringMax],
+            theta: [ang, ang],
+            line: { color: "black", width: 2 }
+          });
+        });
+
+        // 4.5) Ticks & labels for each partition
+        taskOrder.forEach(function(task, i) {
+          var partStart = anglesDeg[i];
+          var baseline = randomAccuracies[i];
+          // E.g., 0%, 20%, 40%, 60%, 80%, 100% from baseline
+          var tickValues = [
+            baseline,
+            baseline + 0.2*(100-baseline),
+            baseline + 0.4*(100-baseline),
+            baseline + 0.6*(100-baseline),
+            baseline + 0.8*(100-baseline),
+            100
+          ];
+          tickValues.forEach(function(tick) {
+            var tickR = ringMin + ((tick - baseline)/(100 - baseline))*(ringMax - ringMin);
+            var delta = 1/3; // small offset in angle
+            // short radial line
+            traces.push({
+              type: "scatterpolar",
+              mode: "lines",
+              hoverinfo: "skip",
+              showlegend: false,
+              r: [tickR, tickR],
+              theta: [partStart - delta, partStart + delta],
+              line: { color: "black", width: 1 }
+            });
+            // text label
+            traces.push({
+              type: "scatterpolar",
+              mode: "text",
+              hoverinfo: "skip",
+              showlegend: false,
+              r: [tickR],
+              theta: [partStart - delta - 2],
+              text: [tick.toString()],
+              textfont: { size: 18, color: "black", family: "Nunito" }
+            });
+          });
+        });
+
+        // -------------------------------------------------------------------
+        // 5) Task name arcs (the snippet you mentioned)
+        // -------------------------------------------------------------------
+        var svgLayer = document.getElementById(params.svgLayerId);
+        var textMargin = 5;
+        var tconf = params.taskNameConfig || {};
+        var labelRadius = (tconf.ringRadius !== undefined) ? (ringMax + tconf.ringRadius) : (ringMax + 10);
+        var endAngleOffset = (tconf.endAngleOffset !== undefined) ? tconf.endAngleOffset : 20;
+        var startAngleExtra = (tconf.startAngleExtra !== undefined) ? tconf.startAngleExtra : (4 * textMargin);
+
+        for (var iTask = 0; iTask < taskOrder.length; iTask++) {
+          var endAngle = anglesDeg[iTask] - endAngleOffset;
+          var startAngle = endAngle - anglePerTask - startAngleExtra;
+          var taskName = taskOrder[iTask];
+          var arcDeg = endAngle - startAngle;
+          if (arcDeg < 5) continue;
+
+          var cx = params.layoutWidth / 2;
+          var cy = params.layoutHeight / 2;
+          var startRad = startAngle * Math.PI / 180;
+          var endRad   = endAngle   * Math.PI / 180;
+          var largeArcFlag = (arcDeg >= 180) ? 1 : 0;
+          var sweepFlag = 1;
+          var x1 = cx + labelRadius * Math.cos(startRad);
+          var y1 = cy + labelRadius * Math.sin(startRad);
+          var x2 = cx + labelRadius * Math.cos(endRad);
+          var y2 = cy + labelRadius * Math.sin(endRad);
+          var pathD = `M ${x1},${y1} A ${labelRadius},${labelRadius} 0 ${largeArcFlag} ${sweepFlag} ${x2},${y2}`;
+
+          var pathId = "arcTask-" + iTask + "-" + params.svgLayerId;
+          var pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          pathEl.setAttribute("id", pathId);
+          pathEl.setAttribute("d", pathD);
+          pathEl.setAttribute("fill", "none");
+          svgLayer.appendChild(pathEl);
+
+          var textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          textEl.setAttribute("fill", "#666666"); // Changed from "black" to a gray color
+          textEl.setAttribute("font-size", "24");
+          textEl.setAttribute("font-family", "Nunito");
+          textEl.setAttribute("font-weight", "bold");
+          var textPathEl = document.createElementNS("http://www.w3.org/2000/svg", "textPath");
+          textPathEl.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#" + pathId);
+          textPathEl.setAttribute("startOffset", "50%");
+          textPathEl.setAttribute("text-anchor", "middle");
+          textPathEl.textContent = taskName;
+
+          textEl.appendChild(textPathEl);
+          svgLayer.appendChild(textEl);
+        }
+      });
+
+      // Plotly layout
+      var layout = {
+      width: params.layoutWidth,
+      height: params.layoutHeight,
+      polar: {
+        domain: { x: [0, 1], y: [0, 1] },
+        center: params.polarCenter,
+        radialaxis: {
+          range: [minPerf - 15, maxPerf + 40],
+          showline: false,
+          ticks: "",
+          showticklabels: false,
+          gridcolor: "rgba(0,0,0,0.1)"
+        },
+        angularaxis: {
+          showline: false,
+          ticks: "",
+          showticklabels: false,
+          gridcolor: "rgba(0,0,0,0.1)",
+          direction: "clockwise"
+        },
+        bgcolor: "transparent"
+      },
+      paper_bgcolor: "transparent",
+      showlegend: false,
+      margin: { l: 0, r: 0, t: 0, b: 0 }
+    };
+    var config = { staticPlot: true, displayModeBar: false };
+    Plotly.newPlot(params.plotlyTargetId, traces, layout, config);
+  }
+
+    // ---------------------------------------------------------------------
+    // 3) Generate the chart
+    // ---------------------------------------------------------------------
+
+    // Render Prediction chart
+    renderChart({
+      tasks: ["MathVista", "MathVision", "MathVerse"],
+      modelNames: ["Ours-7B", "Qwen2.5-VL-7B", "GPT-4o", "o1", "QvQ-72B-Preview", "Gemini 2.0 Flash", "Claude 3.5 Sonnet"],
+      humanPerformances: [60.3, 68.82, 64.9],
+      randomAccuracies: [0, 0, 0],
+      dataValues: [
+        [70.4, 65.0, 63.8, 73.9, 71.4, 73.4, 67.7],
+        [26.22, 25.07, 30.6, 42.2, 35.9, 41.3, 33.5],
+        [48.83, 46.29, 41.2, 57.0, 48.6, 54.6, 47.8]
+      ],
+      modelColors: [
+        "#FFD700",  // Ours-7B (highlight gold)
+        "#AEC7E8",  // pastel blue
+        "#FFBB78",  // pastel orange
+        "#98DF8A",  // pastel green
+        "#FF9896",  // pastel red
+        "#C5B0D5",  // pastel purple
+        "#17BECF"   // pastel cyan
+      ],
+      ring_min: 50,
+      ring_max: 120,
+      gap_deg: 10,
+      plotlyTargetId: "plotly-target-prediction",
+      svgLayerId: "arc-layer-prediction",
+      taskNameConfig: { endAngleOffset: -30, ringRadius: -12 },
+      layoutWidth: document.getElementById("prediction-chart").clientWidth,
+      layoutHeight: document.getElementById("prediction-chart").clientHeight,
+      polarCenter: { x: 0.5, y: 0.5 }
+    });
+
+    // Render the Legend
+    var modelNames = ["Ours-7B", "Qwen2.5-VL-7B", "GPT-4o", "o1", "QvQ-72B-Preview", "Gemini 2.0 Flash", "Claude 3.5 Sonet"];
+    var modelColors = [
+      "#FFD700",  // Ours-7B (highlight gold)
+        "#AEC7E8",  // pastel blue
+        "#FFBB78",  // pastel orange
+        "#98DF8A",  // pastel green
+        "#FF9896",  // pastel red
+        "#C5B0D5",  // pastel purple
+        "#17BECF"   // pastel cyan
+    ];
+    var legendTraces = [];
+    modelNames.forEach((name, i) => {
+      legendTraces.push({
+        x: [null],
+        y: [null],
+        name: name,
+        type: 'scatter',
+        mode: 'lines',
+        line: { color: modelColors[i], width: 10 },
+        showlegend: true
+      });
+    });
+    var legendLayout = {
+      showlegend: true,
+      legend: {
+        font: { family: "Nunito", size: 24, color: "black" },
+        orientation: "v",
+        x: -0.1,
+        y: 0.5
+      },
+      margin: { l: 10, r: 20, t: 50, b: 50 },
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      xaxis: { showgrid: false, zeroline: false, showline: false, showticklabels: false },
+      yaxis: { showgrid: false, zeroline: false, showline: false, showticklabels: false }
+    };
+    var legendConfig = { staticPlot: true, displayModeBar: false };
+    Plotly.newPlot("plotly-target-legend", legendTraces, legendLayout, legendConfig);
+  </script>
+</body>
+</html> 

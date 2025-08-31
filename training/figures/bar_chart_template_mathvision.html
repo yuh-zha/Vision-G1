@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Plotly Bar Chart & PDF Export</title>
+
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <!-- html2pdf.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.3/html2pdf.bundle.min.js"></script>
+  <!-- Nunito font (using crossorigin) -->
+  <link crossorigin="anonymous" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&display=swap"
+    rel="stylesheet">
+
+  <style>
+    body {
+      background: white;
+      margin: 0;
+      padding: 0;
+      font-family: 'Nunito', sans-serif;
+      text-align: center;
+    }
+
+    /* Container for PDF conversion */
+    #content-to-print {
+      width: 1200px;
+      margin: 0 auto;
+      padding: 0;
+      box-sizing: border-box;
+      background: white;
+    }
+
+    /* Chart area (4:3 ratio: 900x675) */
+    #bar-chart {
+      width: 1200px;
+      height: 1000px;
+      margin-top: 50px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="content-to-print">
+    <div id="bar-chart"></div>
+  </div>
+
+  <script>
+    // === Data for a single task ===
+    const tasks = ["MathVision"];
+    const modelsData = [
+      { name: "Qwen2.5-VL-7B",    color: "rgba(140, 154, 168, 0.7)", score: 25.07 },
+      { name: "GPT-4o",           color: "rgba(140, 154, 168, 0.7)", score: 30.6 },
+      { name: "o1",               color: "rgba(140, 154, 168, 0.7)", score: 42.2 },
+      { name: "QvQ-72B-Preview",  color: "rgba(140, 154, 168, 0.7)", score: 35.9 },
+      { name: "Gemini 2.0 Flash", color: "rgba(140, 154, 168, 0.7)", score: 41.3 },
+      { name: "Claude 3.5 Sonnet", color: "rgba(140, 154, 168, 0.7)", score: 33.5 },
+      { name: "Gemini-1.5 Pro", color: "rgba(140, 154, 168, 0.7)", score: 19.24 },
+      // { name: "GPT4V", color: "rgba(140, 154, 168, 0.7)", score: 22.76 },
+      { name: "Gemini Pro", color: "rgba(140, 154, 168, 0.7)", score: 17.66 },
+      { name: "Ours-<b>7B</b>",          color: "rgba(80, 145, 230, 0.95)",  score: 26.22 }
+    ];
+
+    // Sort models from highest performance to lowest
+    modelsData.sort((a, b) => b.score - a.score);
+
+    // 正确计算最大分数：直接从所有模型分数中找出最大值
+    const maxScore = Math.max(...modelsData.map(model => model.score));
+    const yAxisUpperLimit = Math.ceil(maxScore * 1.1);
+    const minScore = Math.min(...modelsData.map(model => model.score));
+    const yAxisLowerLimit = Math.floor(minScore * 0.9);
+    // const yAxisLowerLimit = 0.0;
+
+    // === Build Bar Chart Traces ===
+    const xVals = modelsData.map((_, i) => i);
+    let barTraces = [];
+    // Create a trace for each model in sorted order.
+    // Remove the explicit "width" property so bars no longer overlap;
+    // grouping and the layout's bargroupgap will automatically make them thinner.
+    modelsData.forEach(model => {
+      barTraces.push({
+        type: "bar",
+        name: model.name,
+        visible: true,  // Bars visible
+        x: [model.name],
+        y: [model.score],
+        marker: { color: model.color },
+        text: [model.score.toFixed(1)],
+        textposition: "outside",
+        textfont: { size: 32, color: "black", family: "Nunito", weight: "bold" },
+        hovertemplate: model.name + "<br>%{y:.1f}%<extra></extra>"
+      });
+    });
+
+    // Calculate average human performance
+    const humanPerformancesList = [90.0, 100.0, 98.0, 100.0, 100.0, 86.0, 92.0, 92.0, 80.0, 82.0, 86.0, 90.0, 100.0, 88.0, 100.0, 84.0, 84.0, 90.0, 92.0, 92.0, 96.0, 98.0, 76.0, 100.0, 98.0, 100.0, 98.0, 98.0, 98.0];
+    const avgHumanPerformance = humanPerformancesList.reduce((a, b) => a + b, 0) / humanPerformancesList.length;
+
+    // === Layout Settings ===
+    let layout = {
+      width: 1200,
+      height: 900,
+      barmode: "group",
+      bargap: 0.2,         // Gap between bars of adjacent location coordinates
+      bargroupgap: 0.1,    // Gap between bars of the same location coordinate
+      title: {
+        text: tasks[0],
+        font: { size: 48, family: "Nunito", color: "black", weight: "bold" },
+        standoff: 0
+      },
+      xaxis: {
+        // range: [-0.5, xVals.length - 0.5],
+        // tickvals: xVals,
+        // ticktext: tasks, // updated: show model names under each bar
+        tickfont: { size: 30, family: "Nunito", color: "black", weight: "bold" },
+        tickangle: -45,
+        automargin: true, 
+        showline: false,
+        showgrid: false
+      },
+      yaxis: {
+        range: [yAxisLowerLimit, yAxisUpperLimit],
+        title: {
+          text: "Accuracy (%)",
+          font: { size: 32, family: "Nunito", color: "black", weight: "bold" },
+          standoff: 30
+        },
+        gridcolor: "rgba(0,0,0,0.1)",
+        tickfont: { size: 36, family: "Nunito", color: "black", weight: "bold" },
+        automargin: true,
+      },
+      showlegend: false,
+      // legend: {
+      //   font: { family: "Nunito", size: 24, color: "black" },
+      //   orientation: "v",
+      //   x: 0.95,
+      //   y: 1,
+      //   xanchor: "right",
+      //   yanchor: "top",
+      //   bgcolor: "rgba(255,255,255,0.8)",
+      //   bordercolor: "rgba(0,0,0,0.1)",
+      //   borderwidth: 1,
+      //   itemwidth: 50
+      // },
+      paper_bgcolor: "white",
+      plot_bgcolor: "white",
+      margin: { l: 80, r: 80, t: 80, b: 80 },
+      shapes: [],
+    };
+
+    let config = {
+      staticPlot: false,
+      displayModeBar: false
+    };
+
+    Plotly.newPlot("bar-chart", barTraces, layout, config);
+  </script>
+</body>
+
+</html>
